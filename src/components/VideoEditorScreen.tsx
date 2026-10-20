@@ -27,6 +27,7 @@ import { SpiritualEffectsModal } from './editor/dialogs/SpiritualEffectsModal';
 import { ExportDialog } from './editor/dialogs/ExportDialog';
 import { CalligraphyAudioModal } from './editor/dialogs/CalligraphyAudioModal';
 import { ParticleOverlaysModal } from './editor/dialogs/ParticleOverlaysModal';
+import { MediaClipsModal } from './editor/dialogs/MediaClipsModal';
 import { EditorWorkspaceTabs } from './editor/EditorWorkspaceTabs';
 import { StorageService } from '../services/storageService';
 import { audioEngine } from '../services/audioEngine';
@@ -55,6 +56,7 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
   const [isParticlesModalOpen, setIsParticlesModalOpen] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isCalligraphyModalOpen, setIsCalligraphyModalOpen] = useState(false);
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
 
   const duration = draft.duration || 15;
   const playIntervalRef = useRef<number | null>(null);
@@ -95,6 +97,11 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
     };
   }, [isPlaying, duration, draft.replacedAudio, draft.replacedAudioVolume]);
 
+  // Synchronize timeline media audio clips with playback and current time
+  useEffect(() => {
+    audioEngine.syncMediaClips(draft.mediaClips || [], currentTime, isPlaying);
+  }, [isPlaying, currentTime, draft.mediaClips]);
+
   const handlePlayToggle = () => {
     setIsPlaying((prev) => !prev);
   };
@@ -102,6 +109,31 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
   const handleSeek = (time: number) => {
     setCurrentTime(time);
     audioEngine.seek(time);
+    audioEngine.syncMediaClips(draft.mediaClips || [], time, isPlaying);
+  };
+
+  // Delete clip from timeline
+  const handleDeleteClip = (id: string) => {
+    const updatedClips = (draft.mediaClips || []).filter((c) => c.id !== id);
+    const updated = { ...draft, mediaClips: updatedClips };
+    setDraft(updated);
+    onUpdateDraft(updated);
+    StorageService.saveProject(updated);
+  };
+
+  // Split clip at current playhead position
+  const handleSplitAtPlayhead = () => {
+    const clips = draft.mediaClips || [];
+    const targetClip = clips.find((c) => currentTime > c.startTime && currentTime < c.endTime);
+    if (!targetClip) return;
+
+    const part1 = { ...targetClip, id: `${targetClip.id}_p1`, endTime: currentTime };
+    const part2 = { ...targetClip, id: `${targetClip.id}_p2`, startTime: currentTime };
+    const updatedClips = clips.filter((c) => c.id !== targetClip.id).concat([part1, part2]);
+    const updated = { ...draft, mediaClips: updatedClips };
+    setDraft(updated);
+    onUpdateDraft(updated);
+    StorageService.saveProject(updated);
   };
 
   // Quick Mute / Replace Toggle
@@ -284,6 +316,9 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
         onOpenTextModal={() => setIsTextModalOpen(true)}
         onOpenAudioModal={() => setIsAudioModalOpen(true)}
         onOpenEffectsModal={() => setIsEffectsModalOpen(true)}
+        onOpenMediaModal={() => setIsMediaModalOpen(true)}
+        onDeleteClip={handleDeleteClip}
+        onSplitAtPlayhead={handleSplitAtPlayhead}
       />
 
       {/* Bottom Action Toolbar */}
@@ -294,6 +329,7 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
         onOpenParticles={() => setIsParticlesModalOpen(true)}
         onOpenMuteReplace={() => setIsAudioModalOpen(true)}
         onOpenCalligraphy={() => setIsCalligraphyModalOpen(true)}
+        onOpenMedia={() => setIsMediaModalOpen(true)}
         onSaveDraft={handleSaveDraft}
         onExport={() => setIsExportDialogOpen(true)}
         isMuted={draft.muteOriginalAudio}
@@ -383,6 +419,18 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
         isOpen={isExportDialogOpen}
         onClose={() => setIsExportDialogOpen(false)}
         draft={draft}
+      />
+
+      <MediaClipsModal
+        isOpen={isMediaModalOpen}
+        onClose={() => setIsMediaModalOpen(false)}
+        draft={draft}
+        currentTime={currentTime}
+        onUpdateDraft={(updated) => {
+          setDraft(updated);
+          onUpdateDraft(updated);
+          StorageService.saveProject(updated);
+        }}
       />
 
     </div>

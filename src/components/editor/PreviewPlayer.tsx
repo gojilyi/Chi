@@ -28,6 +28,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   const imageElementRef = useRef<HTMLImageElement>(null);
   const videoElementRef = useRef<HTMLVideoElement>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const clipImagesRef = useRef<Map<string, HTMLImageElement>>(new Map());
 
   // Format seconds to mm:ss
   const formatTime = (secs: number) => {
@@ -478,6 +479,45 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
         }
 
         ctx.restore();
+      });
+
+      // 2.5. Render Multi-Media Clips (Images and Video Overlays added by user)
+      const mediaClips = draft.mediaClips || [];
+      const activeVisualClips = mediaClips.filter(
+        (c) => (c.type === 'image' || c.type === 'video') && currentTime >= c.startTime && currentTime <= c.endTime
+      );
+
+      activeVisualClips.forEach((clip) => {
+        let clipImg = clipImagesRef.current.get(clip.url);
+        if (!clipImg) {
+          clipImg = new Image();
+          clipImg.src = clip.url;
+          clipImagesRef.current.set(clip.url, clipImg);
+        }
+
+        if (clipImg.complete && clipImg.naturalWidth > 0) {
+          ctx.save();
+          const posX = (dims.width * (clip.positionX ?? 50)) / 100;
+          const posY = (dims.height * (clip.positionY ?? 50)) / 100;
+          const scale = clip.scale ?? 1;
+          const opacity = clip.opacity ?? 1;
+
+          ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
+          ctx.translate(posX, posY);
+          ctx.scale(scale, scale);
+
+          const targetW = dims.width * 0.55;
+          const aspect = clipImg.naturalHeight / clipImg.naturalWidth;
+          const targetH = targetW * aspect;
+
+          try {
+            ctx.drawImage(clipImg, -targetW / 2, -targetH / 2, targetW, targetH);
+          } catch {
+            // Draw fallback
+          }
+
+          ctx.restore();
+        }
       });
 
       // 3. Render Active Text Overlays (Quranic Verses)

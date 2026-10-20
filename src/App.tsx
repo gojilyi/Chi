@@ -19,6 +19,7 @@ import { HomeScreen } from './components/HomeScreen';
 import { VideoEditorScreen } from './components/VideoEditorScreen';
 import { FlutterCodeHub } from './components/flutter/FlutterCodeHub';
 import { AutoLectureMakerScreen } from './components/auto_lecture/AutoLectureMakerScreen';
+import { OfflineIndicator } from './components/pwa/OfflineIndicator';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'editor' | 'flutter_code' | 'drafts' | 'auto_lessons'>('home');
@@ -47,7 +48,7 @@ export default function App() {
     setDrafts(StorageService.getProjects());
   };
 
-  // Start new project with selected aspect ratio
+  // Start new project with selected aspect ratio and uploaded media
   const handleSelectRatio = (
     ratio: AspectRatioType, 
     customVideoUrl?: string, 
@@ -58,21 +59,34 @@ export default function App() {
       ratio === '9:16' ? ASSET_MINARET_SUNSET : 
       ratio === '16:9' ? ASSET_QURAN_LIGHT : ASSET_ARABIC_ORNAMENT;
 
+    const isAudio = /\.(mp3|wav|m4a|ogg|aac|flac)$/i.test(customVideoName || '');
+
     const newDraft: ProjectDraft = {
       id: `draft_${timestamp}`,
       title: customVideoName 
-        ? `مشروع: ${customVideoName}` 
+        ? (isAudio ? `مشروع صوتي: ${customVideoName}` : `مشروع: ${customVideoName}`)
         : `مشروع جديد (${ratio})`,
       aspectRatio: ratio,
       createdAt: timestamp,
       updatedAt: timestamp,
-      duration: 15,
-      videoSourceUrl: customVideoUrl || defaultThumbnail,
+      duration: isAudio ? 30 : 15,
+      videoSourceUrl: isAudio ? defaultThumbnail : (customVideoUrl || defaultThumbnail),
       videoSourceName: customVideoName || (ratio === '9:16' ? 'مشهد المئذنة الذهبي.mp4' : ratio === '16:9' ? 'مصحف المسجد العتيق.mp4' : 'زخرفة إسلامية.mp4'),
-      isCustomVideo: !!customVideoUrl,
+      isCustomVideo: !!customVideoUrl && !isAudio,
       muteOriginalAudio: true, // Default to mute original audio as requested
       originalAudioVolume: 0,
-      replacedAudio: DEFAULT_AUDIO_LIBRARY[0], // Recitation
+      replacedAudio: isAudio && customVideoUrl
+        ? {
+            id: `uploaded_audio_${timestamp}`,
+            title: customVideoName?.replace(/\.[^/.]+$/, '') || 'تسجيل صوتي',
+            artist: 'ملف مرفوع من جهازك',
+            category: 'nasheed',
+            duration: 30,
+            audioUrl: customVideoUrl,
+            isCustomUpload: true,
+            type: 'file',
+          }
+        : DEFAULT_AUDIO_LIBRARY[0], // Recitation
       replacedAudioVolume: 0.9,
       replacedAudioStartTime: 0,
       textOverlays: [
@@ -84,7 +98,7 @@ export default function App() {
       ],
       imageOverlays: [],
       effects: DEFAULT_SPIRITUAL_EFFECTS,
-      thumbnailUrl: customVideoUrl || defaultThumbnail,
+      thumbnailUrl: isAudio ? defaultThumbnail : (customVideoUrl || defaultThumbnail),
     };
 
     StorageService.saveProject(newDraft);
@@ -232,6 +246,9 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Offline Mode Indicator Banner */}
+      <OfflineIndicator />
     </div>
   );
 }

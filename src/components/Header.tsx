@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { Sparkles, Code2, Film, FolderKanban, Download } from 'lucide-react';
+import { PWAInstallButton } from './pwa/PWAInstallButton';
 
 interface HeaderProps {
   activeTab: 'editor' | 'home' | 'flutter_code' | 'drafts' | 'auto_lessons';
@@ -93,8 +94,10 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </nav>
 
-        {/* Zone 3: Primary Action */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Zone 3: Primary Action & Offline PWA Install */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <PWAInstallButton />
+
           {activeTab === 'editor' && onExportClick ? (
             <button
               onClick={onExportClick}

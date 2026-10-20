@@ -129,12 +129,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               className="inline-flex items-center gap-2 text-xs font-semibold text-[#89F8C7] hover:text-white bg-[#1E2024] hover:bg-[#2B2C30] px-3.5 py-2 rounded-xl border border-[#333539] transition-all shadow-sm"
             >
               <Upload className="w-3.5 h-3.5" />
-              <span>رفع فيديو من جهازك (MP4)</span>
+              <span>رفع ملف (فيديو / صوت / صورة)</span>
             </button>
             <input
               ref={fileInputRef}
               type="file"
-              accept="video/*"
+              accept="video/*,audio/*,image/*"
               className="hidden"
               onChange={handleFileUpload}
             />
