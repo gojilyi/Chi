@@ -26,7 +26,7 @@ export default function App() {
   const [drafts, setDrafts] = useState<ProjectDraft[]>([]);
   const [activeDraft, setActiveDraft] = useState<ProjectDraft | null>(null);
 
-  // Initialize and load drafts from local database (Hive simulation)
+  // Initialize and load drafts from local database (Hive / IndexedDB simulation)
   useEffect(() => {
     const loadedDrafts = StorageService.getProjects();
     setDrafts(loadedDrafts);
@@ -42,6 +42,11 @@ export default function App() {
     } else if (loadedDrafts.length > 0) {
       setActiveDraft(loadedDrafts[0]);
     }
+
+    // Hydrate from IndexedDB in the background and refresh if new items exist
+    StorageService.initStorage().then(() => {
+      setDrafts(StorageService.getProjects());
+    });
   }, []);
 
   const refreshDrafts = () => {
@@ -178,7 +183,9 @@ export default function App() {
       thumbnailUrl: bgUrl,
     };
 
-    StorageService.saveProject(newDraft);
+    try {
+      StorageService.saveProject(newDraft);
+    } catch (_) {}
     setActiveDraft(newDraft);
     refreshDrafts();
     setActiveTab('editor');

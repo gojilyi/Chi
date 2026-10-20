@@ -28,6 +28,7 @@ import { ExportDialog } from './editor/dialogs/ExportDialog';
 import { CalligraphyAudioModal } from './editor/dialogs/CalligraphyAudioModal';
 import { ParticleOverlaysModal } from './editor/dialogs/ParticleOverlaysModal';
 import { MediaClipsModal } from './editor/dialogs/MediaClipsModal';
+import { VideoTrimModal } from './editor/dialogs/VideoTrimModal';
 import { EditorWorkspaceTabs } from './editor/EditorWorkspaceTabs';
 import { StorageService } from '../services/storageService';
 import { audioEngine } from '../services/audioEngine';
@@ -54,6 +55,7 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
   const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
   const [isEffectsModalOpen, setIsEffectsModalOpen] = useState(false);
   const [isParticlesModalOpen, setIsParticlesModalOpen] = useState(false);
+  const [isTrimModalOpen, setIsTrimModalOpen] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isCalligraphyModalOpen, setIsCalligraphyModalOpen] = useState(false);
   const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
@@ -317,6 +319,7 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
         onOpenAudioModal={() => setIsAudioModalOpen(true)}
         onOpenEffectsModal={() => setIsEffectsModalOpen(true)}
         onOpenMediaModal={() => setIsMediaModalOpen(true)}
+        onOpenTrimModal={() => setIsTrimModalOpen(true)}
         onDeleteClip={handleDeleteClip}
         onSplitAtPlayhead={handleSplitAtPlayhead}
       />
@@ -326,7 +329,7 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
         onOpenText={() => setIsTextModalOpen(true)}
         onOpenAudio={() => setIsAudioModalOpen(true)}
         onOpenEffects={() => setIsEffectsModalOpen(true)}
-        onOpenParticles={() => setIsParticlesModalOpen(true)}
+        onOpenTrim={() => setIsTrimModalOpen(true)}
         onOpenMuteReplace={() => setIsAudioModalOpen(true)}
         onOpenCalligraphy={() => setIsCalligraphyModalOpen(true)}
         onOpenMedia={() => setIsMediaModalOpen(true)}
@@ -409,6 +412,19 @@ export const VideoEditorScreen: React.FC<VideoEditorScreenProps> = ({
         particleOverlays={draft.particleOverlays || DEFAULT_PARTICLE_OVERLAYS}
         onUpdateParticles={(particles: ParticleOverlayItem[]) => {
           const updated = { ...draft, particleOverlays: particles };
+          setDraft(updated);
+          onUpdateDraft(updated);
+          StorageService.saveProject(updated);
+        }}
+      />
+
+      <VideoTrimModal
+        isOpen={isTrimModalOpen}
+        onClose={() => setIsTrimModalOpen(false)}
+        draft={draft}
+        currentTime={currentTime}
+        onSeek={handleSeek}
+        onUpdateDraft={(updated) => {
           setDraft(updated);
           onUpdateDraft(updated);
           StorageService.saveProject(updated);

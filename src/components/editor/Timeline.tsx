@@ -29,6 +29,7 @@ interface TimelineProps {
   onOpenAudioModal: () => void;
   onOpenEffectsModal: () => void;
   onOpenMediaModal?: () => void;
+  onOpenTrimModal?: () => void;
   onSplitAtPlayhead?: () => void;
   onDeleteClip?: (id: string) => void;
 }
@@ -41,6 +42,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   onOpenAudioModal,
   onOpenEffectsModal,
   onOpenMediaModal,
+  onOpenTrimModal,
   onSplitAtPlayhead,
   onDeleteClip,
 }) => {
@@ -102,14 +104,26 @@ export const Timeline: React.FC<TimelineProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Dedicated Video Trimming & Cutting Tools Button */}
+          {onOpenTrimModal && (
+            <button
+              onClick={onOpenTrimModal}
+              title="فتح نافذة قص وتعديل الفيديو المتقدمة"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#006C4C]/40 hover:bg-[#006C4C]/65 text-[#89F8C7] font-semibold transition-all border border-[#89F8C7]/50 shadow-sm active:scale-95"
+            >
+              <Scissors className="w-3.5 h-3.5 text-[#89F8C7]" />
+              <span>أدوات قص الفيديو وتعديله</span>
+            </button>
+          )}
+
           {/* Quick Media & Trimming Manager button */}
           {onOpenMediaModal && (
             <button
               onClick={onOpenMediaModal}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#006C4C] hover:bg-[#00573c] text-white font-semibold transition-all shadow-sm active:scale-95"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#202226] hover:bg-[#2B2C30] text-[#E3E2E6] font-semibold transition-all border border-[#36373B] shadow-sm active:scale-95"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>إضافة وتعديل الوسائط والقص</span>
+              <Plus className="w-3.5 h-3.5 text-[#89F8C7]" />
+              <span>الوسائط والطبقات</span>
             </button>
           )}
 

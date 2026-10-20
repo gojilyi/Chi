@@ -10,7 +10,7 @@ interface BottomToolbarProps {
   onOpenText: () => void;
   onOpenAudio: () => void;
   onOpenEffects: () => void;
-  onOpenParticles: () => void;
+  onOpenTrim: () => void;
   onOpenMuteReplace: () => void;
   onOpenCalligraphy: () => void;
   onOpenMedia?: () => void;
@@ -23,7 +23,7 @@ export const BottomToolbar: React.FC<BottomToolbarProps> = ({
   onOpenText,
   onOpenAudio,
   onOpenEffects,
-  onOpenParticles,
+  onOpenTrim,
   onOpenMuteReplace,
   onOpenCalligraphy,
   onOpenMedia,
@@ -35,14 +35,14 @@ export const BottomToolbar: React.FC<BottomToolbarProps> = ({
     <div className="bg-[#1A1C1E] border border-[#2B2C30] rounded-2xl p-2.5 shadow-lg">
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-2">
         
-        {/* Button 1: إضافة الوسائط والقص والحذف (Media, Trimming & Clips) */}
+        {/* Button 1: إضافة الوسائط والقص والحذف (Media & Clips) */}
         {onOpenMedia && (
           <button
             onClick={onOpenMedia}
             className="h-12 rounded-xl bg-gradient-to-r from-[#006C4C]/40 to-[#00875F]/30 hover:from-[#006C4C]/60 hover:to-[#00875F]/50 text-[#89F8C7] flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all text-xs font-bold border border-[#89F8C7]/50 active:scale-[0.98] shadow-sm"
           >
             <Scissors className="w-4 h-4 text-[#89F8C7]" />
-            <span>الوسائط والقص</span>
+            <span>الوسائط والطبقات</span>
           </button>
         )}
 
@@ -82,13 +82,13 @@ export const BottomToolbar: React.FC<BottomToolbarProps> = ({
           <span>المؤثرات</span>
         </button>
 
-        {/* Button 6: مكتبة فلاتر الجسيمات (Particle Overlays) */}
+        {/* Button 6: أدوات قص وتعديل الفيديو (Video Trimming & Cutting) */}
         <button
-          onClick={onOpenParticles}
-          className="h-12 rounded-xl bg-gradient-to-r from-[#004A33]/40 to-[#122b22]/50 hover:from-[#006C4C]/50 hover:to-[#17382d]/60 text-[#89F8C7] flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all text-xs font-bold border border-[#006C4C]/60 active:scale-[0.98] shadow-sm"
+          onClick={onOpenTrim}
+          className="h-12 rounded-xl bg-gradient-to-r from-[#004A33]/50 to-[#006C4C]/40 hover:from-[#006C4C]/60 hover:to-[#00875F]/50 text-[#89F8C7] flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all text-xs font-bold border border-[#89F8C7]/60 active:scale-[0.98] shadow-sm"
         >
-          <Sparkles className="w-4 h-4 text-[#FFDF9E]" />
-          <span>فلاتر الجسيمات</span>
+          <Scissors className="w-4 h-4 text-[#89F8C7]" />
+          <span>قص وتعديل</span>
         </button>
 
         {/* Button 7: كتم وحجب الصوت (Mute & Replace) */}

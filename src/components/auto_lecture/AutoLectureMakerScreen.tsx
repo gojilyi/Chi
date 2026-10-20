@@ -135,19 +135,7 @@ export const AutoLectureMakerScreen: React.FC<AutoLectureMakerScreenProps> = ({
       tempAudio.src = blobUrl;
       tempAudio.onloadedmetadata = () => {
         const audioDur = Math.round(tempAudio.duration) || 15;
-        if (file.size < 12 * 1024 * 1024) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = reader.result as string;
-            processAudio(audioDur, dataUrl || blobUrl);
-          };
-          reader.onerror = () => {
-            processAudio(audioDur, blobUrl);
-          };
-          reader.readAsDataURL(file);
-        } else {
-          processAudio(audioDur, blobUrl);
-        }
+        processAudio(audioDur, blobUrl);
       };
 
       tempAudio.onerror = () => {
@@ -258,16 +246,6 @@ export const AutoLectureMakerScreen: React.FC<AutoLectureMakerScreenProps> = ({
       vig.addColorStop(1, 'rgba(0, 0, 0, 0.65)');
       ctx.fillStyle = vig;
       ctx.fillRect(0, 0, w, h);
-
-      // 3. Ambient warm particle float
-      ctx.fillStyle = 'rgba(255, 223, 140, 0.6)';
-      for (let i = 0; i < 20; i++) {
-        const px = ((Math.sin(i * 45 + animT * 0.5) * 0.5 + 0.5) * w);
-        const py = ((i * 35 + animT * 15) % h);
-        ctx.beginPath();
-        ctx.arc(px, py, 1.8, 0, Math.PI * 2);
-        ctx.fill();
-      }
 
       // 4. Render Word-Level Karaoke Calligraphy
       const currentMs = currentTime * 1000;

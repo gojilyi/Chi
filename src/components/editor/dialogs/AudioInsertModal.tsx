@@ -78,19 +78,7 @@ export const AudioInsertModal: React.FC<AudioInsertModalProps> = ({
 
       tempAudio.onloadedmetadata = () => {
         const dur = Math.round(tempAudio.duration) || 60;
-        if (file.size < 12 * 1024 * 1024) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = reader.result as string;
-            finishUpload(dur, dataUrl || blobUrl);
-          };
-          reader.onerror = () => {
-            finishUpload(dur, blobUrl);
-          };
-          reader.readAsDataURL(file);
-        } else {
-          finishUpload(dur, blobUrl);
-        }
+        finishUpload(dur, blobUrl);
       };
 
       tempAudio.onerror = () => {

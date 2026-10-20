@@ -55,7 +55,8 @@ dependencies:
   flutter_riverpod: ^2.5.1
   google_fonts: ^6.1.0
   
-  # الأيقونات ومعالجة الملفات الصوتية
+  # الأيقونات ومعالجة الملفات والشبكة
+  http: ^1.2.0
   audioplayers: ^5.2.1
   file_picker: ^8.0.0
   path_provider: ^2.1.2
@@ -1369,6 +1370,605 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:00.30,0:00:15.00,RuqaaKaraoke,,0,0,0,,{\\\\k110}قِيَامُ {\\\\k140}اللَّيْلِ {\\\\k150}مِشْكَاةُ {\\\\k150}النُّورِ {\\\\k150}وَسَبِيلُ {\\\\k190}الْمُتَّقِينَ
 ''';
     return await file.writeAsString(content);
+  }
+}
+`.trim(),
+  },
+  {
+    path: 'lib/features/subtitles/services/karaoke_subtitles_pipeline.dart',
+    filename: 'karaoke_subtitles_pipeline.dart',
+    description: 'المراحل الثلاث المتكاملة: تحويل الصوت لنص بتوقيت الكلمات + توليد ملف ASS كاريوكي + دمج FFmpeg Kit مع معالجة الأخطاء',
+    code: `import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:ffmpeg_kit_flutter_full_gpl/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_full_gpl/return_code.dart';
+import 'package:ffmpeg_kit_flutter_full_gpl/session.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+
+// ============================================================================
+// نماذج البيانات (Data Models)
+// ============================================================================
+
+/// يمثل كلمة واحدة مع توقيتها الزمني بالثواني
+class WordTimestamp {
+  final String word;
+  final double start; // بالثواني
+  final double end;   // بالثواني
+
+  WordTimestamp({
+    required this.word,
+    required this.start,
+    required this.end,
+  });
+
+  factory WordTimestamp.fromJson(Map<String, dynamic> json) {
+    return WordTimestamp(
+      word: (json['word'] ?? '').toString().trim(),
+      start: (json['start'] as num).toDouble(),
+      end: (json['end'] as num).toDouble(),
+    );
+  }
+
+  /// مدة نطق الكلمة بالـ Centiseconds (جزء من مئة من الثانية) المطلوبة لوسم ASS Karaoke \\k
+  int get durationInCentiseconds {
+    final diff = end - start;
+    final cs = (diff * 100).round();
+    return cs > 0 ? cs : 10; // الحد الأدنى 10 سنتي-ثانية لتفادي التوقيت الصفري
+  }
+}
+
+/// نتيجة استجابة التفريغ الصوتي الشاملة
+class TranscriptionResult {
+  final String fullText;
+  final List<WordTimestamp> words;
+
+  TranscriptionResult({
+    required this.fullText,
+    required this.words,
+  });
+}
+
+/// مراحل المعالجة لمتابعة شريط التقدم في واجهة المستخدم
+enum PipelineStage {
+  idle,
+  transcribingAudio, // المرحلة 1: الاتصال بـ API
+  generatingAssFile, // المرحلة 2: توليد ملف الترجمة الكاريوكي
+  mergingWithFFmpeg, // المرحلة 3: معالجة الفيديو بـ FFmpeg
+  completed,
+  failed,
+}
+
+// ============================================================================
+// المرحلة 1: تحويل الصوت إلى نص مع التوقيت الدقيق للكلمات (Speech-to-Text API)
+// ============================================================================
+
+class SpeechToTextService {
+  final String apiKey;
+  final http.Client _client;
+
+  SpeechToTextService({
+    required this.apiKey,
+    http.Client? client,
+  }) : _client = client ?? http.Client();
+
+  /// إرسال الملف الصوتي واستخراج الكلمات مع التوقيت الزمني الدقيق (Word-level timestamps)
+  /// يعتمد على نموذج OpenAI Whisper (verbose_json + timestamp_granularities[]=word)
+  Future<TranscriptionResult> transcribeAudioWithWordTimestamps({
+    required File audioFile,
+    String language = 'ar', // اللغة العربية
+  }) async {
+    // 1. التحقق من وجود الملف الصوتي
+    if (!await audioFile.exists()) {
+      throw FileSystemException('الملف الصوتي المحدد غير موجود في المسار', audioFile.path);
+    }
+
+    final uri = Uri.parse('https://api.openai.com/v1/audio/transcriptions');
+
+    try {
+      final request = http.MultipartRequest('POST', uri);
+      
+      // الترويسات المطلوبة للمصادقة
+      request.headers.addAll({
+        'Authorization': 'Bearer \$apiKey',
+        'Accept': 'application/json',
+      });
+
+      // إضافة ملف الصوت
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          audioFile.path,
+        ),
+      );
+
+      // المتغيرات الجوهرية للحصول على توقيت الكلمات بدقة:
+      request.fields['model'] = 'whisper-1';
+      request.fields['language'] = language;
+      request.fields['response_format'] = 'verbose_json'; // ضروري جداً
+      // طلب توقيت الكلمات من OpenAI Whisper API
+      request.fields['timestamp_granularities[]'] = 'word';
+
+      // إرسال الطلب مع مهلة زمنية (Timeout)
+      final streamedResponse = await _client.send(request).timeout(
+        const Duration(minutes: 3),
+        onTimeout: () {
+          throw TimeoutException('انتهت مهلة الاتصال بخادم التفريغ الصوتي (Timeout). يُرجى التحقق من سرعة الإنترنت.');
+        },
+      );
+
+      final response = await http.Response.fromStream(streamedResponse);
+
+      // معالجة رموز الاستجابة من الخادم
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        
+        final fullText = decoded['text'] as String? ?? '';
+        final wordsRaw = decoded['words'] as List<dynamic>? ?? [];
+
+        if (wordsRaw.isEmpty) {
+          throw Exception('لم يُرجع الـ API أي كلمات مجزأة بتوقيتات زمنية. تأكد من جودة الصوت ووضوحه.');
+        }
+
+        final wordsList = wordsRaw
+            .map((w) => WordTimestamp.fromJson(w as Map<String, dynamic>))
+            .where((w) => w.word.trim().isNotEmpty)
+            .toList();
+
+        return TranscriptionResult(
+          fullText: fullText,
+          words: wordsList,
+        );
+      } else if (response.statusCode == 401) {
+        throw const HttpException('مفتاح الـ API غير صالح (Unauthorized: 401). تأكد من إعداد OpenAI API Key بشكل صحيح.');
+      } else if (response.statusCode == 429) {
+        throw const HttpException('تم تجاوز الحصة المتاحة للـ API أو كثرة الطلبات (Rate Limit / Quota Exceeded: 429).');
+      } else {
+        throw HttpException(
+          'فشل الاتصال بخادم التفريغ الصوتي (كود: \${response.statusCode}): \${response.body}',
+        );
+      }
+    } on SocketException {
+      // معالجة انقطاع الاتصال بالإنترنت
+      throw const SocketException('تعذر الاتصال بالإنترنت. يرجى التأكد من تشغيل بيانات الهاتف أو الواي فاي والمحاولة ثانية.');
+    } catch (e) {
+      rethrow;
+    }
+  }
+}
+
+// ============================================================================
+// المرحلة 2: توليد ملف الترجمة والكاريوكي المتقدم (.ass - Advanced SubStation Alpha)
+// ============================================================================
+
+class AssKaraokeGenerator {
+  /// تحويل الثواني إلى صيغة توقيت ASS الدقيقة: H:MM:SS.cs (مثال: 0:01:23.45)
+  static String formatAssTime(double seconds) {
+    if (seconds < 0) seconds = 0;
+    final int hours = seconds ~/ 3600;
+    final int minutes = (seconds % 3600) ~/ 60;
+    final double secs = seconds % 60;
+    final int wholeSecs = secs.toInt();
+    final int centis = ((secs - wholeSecs) * 100).round();
+
+    final hStr = hours.toString();
+    final mStr = minutes.toString().padLeft(2, '0');
+    final sStr = wholeSecs.toString().padLeft(2, '0');
+    final cStr = centis.toString().padLeft(2, '0');
+
+    return '\$hStr:\$mStr:\$sStr.\$cStr';
+  }
+
+  /// تحويل كود اللون السداسي Hex RGB (مثل 0xFFE5B842 أو #E5B842)
+  /// إلى صيغة ألوان ASS BGR القياسية (&HAABBGGRR&)
+  static String hexToAssBgr(int colorHex, {int alpha = 0}) {
+    final r = (colorHex >> 16) & 0xFF;
+    final g = (colorHex >> 8) & 0xFF;
+    final b = colorHex & 0xFF;
+    final a = alpha & 0xFF;
+
+    final aHex = a.toRadixString(16).padLeft(2, '0').toUpperCase();
+    final bHex = b.toRadixString(16).padLeft(2, '0').toUpperCase();
+    final gHex = g.toRadixString(16).padLeft(2, '0').toUpperCase();
+    final rHex = r.toRadixString(16).padLeft(2, '0').toUpperCase();
+
+    return '&H\$aHex\$bHex\$gHex\$rHex';
+  }
+
+  /// دالة ذكية لتجميع الكلمات في أسطر حوارية (Dialogue Lines)
+  /// تقطع الأسطر عند الوقفات الزمنية (> 0.6 ثانية) أو عند بلوغ الحد الأقصى للكلمات في السطر (6 كلمات)
+  static List<List<WordTimestamp>> groupWordsIntoLines(
+    List<WordTimestamp> words, {
+    int maxWordsPerLine = 6,
+    double pauseThresholdSeconds = 0.65,
+  }) {
+    final List<List<WordTimestamp>> lines = [];
+    List<WordTimestamp> currentLine = [];
+
+    for (int i = 0; i < words.length; i++) {
+      final currentWord = words[i];
+
+      if (currentLine.isNotEmpty) {
+        final prevWord = currentLine.last;
+        final silenceGap = currentWord.start - prevWord.end;
+
+        // إذا كانت هناك وقفة تنفس أو سكتة بين الكلمات، أو اكتمل طول السطر المناسب للشاشة
+        if (silenceGap >= pauseThresholdSeconds || currentLine.length >= maxWordsPerLine) {
+          lines.add(List.from(currentLine));
+          currentLine.clear();
+        }
+      }
+
+      currentLine.add(currentWord);
+    }
+
+    if (currentLine.isNotEmpty) {
+      lines.add(currentLine);
+    }
+
+    return lines;
+  }
+
+  /// توليد ملف .ass المتكامل وحفظه محلياً في مجلد المستندات أو الملفات المؤقتة
+  static Future<File> generateAssFile({
+    required List<WordTimestamp> words,
+    String? customOutputPath,
+    String fontName = 'Aref Ruqaa', // خط الرقعة العربي الجميل
+    int fontSize = 76,
+    int normalTextColor = 0xFFFFFF,      // أبيض ناصع قبل النطق
+    int highlightColor = 0xE5B842,       // ذهبي هادف متوهج لحظة نطق الكلمة
+    int outlineColor = 0x000000,         // تحديد أسود لضمان الوضوح على أي خلفية
+    int shadowColor = 0x111111,
+    int alignment = 5,                   // 5 = منتصف الشاشة (Center)، 2 = أسفل الشاشة
+    int marginV = 280,                   // الهامش العمودي من الأسفل/الأعلى
+    int playResX = 1080,                 // أبعاد الفيديو العمودي ريلز/تيك توك
+    int playResY = 1920,
+  }) async {
+    final buffer = StringBuffer();
+
+    // 1. ترويسة ملف ASS الأساسية
+    buffer.writeln('[Script Info]');
+    buffer.writeln('Title: Synchronized Arabic Karaoke Subtitles');
+    buffer.writeln('ScriptType: v4.00+');
+    buffer.writeln('WrapStyle: 0');
+    buffer.writeln('ScaledBorderAndShadow: yes');
+    buffer.writeln('YCbCr Matrix: TV.709');
+    buffer.writeln('PlayResX: \$playResX');
+    buffer.writeln('PlayResY: \$playResY');
+    buffer.writeln();
+
+    // 2. جدول الأنماط والتنسيقات (V4+ Styles)
+    // PrimaryColour: اللون الافتراضي للكلمة قبل نطقها (أبيض)
+    // SecondaryColour: لون الكاريوكي الذي تتلون به الكلمة عند نطقها (ذهبي)
+    final primaryAssBgr = hexToAssBgr(normalTextColor, alpha: 0x00);
+    final secondaryAssBgr = hexToAssBgr(highlightColor, alpha: 0x00);
+    final outlineAssBgr = hexToAssBgr(outlineColor, alpha: 0x00);
+    final backAssBgr = hexToAssBgr(shadowColor, alpha: 0x80);
+
+    buffer.writeln('[V4+ Styles]');
+    buffer.writeln('Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding');
+    // Encoding 178 هو كود التشفير العربي القياسي في ASS
+    buffer.writeln(
+      'Style: ArabicKaraokeStyle,\$fontName,\$fontSize,\$primaryAssBgr,\$secondaryAssBgr,\$outlineAssBgr,\$backAssBgr,-1,0,0,0,100,100,2,0,1,3.8,4.5,\$alignment,50,50,\$marginV,178',
+    );
+    buffer.writeln();
+
+    // 3. قسم الحوارات والأحداث المتزامنة (Events & Karaoke Dialogue)
+    buffer.writeln('[Events]');
+    buffer.writeln('Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text');
+
+    // تقسيم الكلمات إلى أسطر متناغمة
+    final lines = groupWordsIntoLines(words);
+
+    for (final line in lines) {
+      if (line.isEmpty) continue;
+
+      final lineStartSec = line.first.start;
+      final lineEndSec = line.last.end + 0.25; // إضافة مهلة ربع ثانية لراحة العين بعد نهاية آخر كلمة
+
+      final startAss = formatAssTime(lineStartSec);
+      final endAss = formatAssTime(lineEndSec);
+
+      // بناء نص الكاريوكي باستخدام وسم {\\k<مدة_الكلمة_بالسنتيثانية>}
+      // كل وسم \\k يحدد للمشغل متى يغير لون الكلمة بالضبط وتزامن الحروف
+      final textBuffer = StringBuffer();
+      for (final word in line) {
+        textBuffer.write('{\\\\k\${word.durationInCentiseconds}}\${word.word} ');
+      }
+
+      final lineAssText = textBuffer.toString().trim();
+      buffer.writeln('Dialogue: 0,\$startAss,\$endAss,ArabicKaraokeStyle,,0,0,0,,\$lineAssText');
+    }
+
+    // 4. حفظ الملف في الذاكرة المحلية
+    String targetPath = customOutputPath ?? '';
+    if (targetPath.isEmpty) {
+      final tempDir = await getTemporaryDirectory();
+      targetPath = '\${tempDir.path}/arabic_karaoke_\${DateTime.now().millisecondsSinceEpoch}.ass';
+    }
+
+    final assFile = File(targetPath);
+    await assFile.writeAsString(buffer.toString(), encoding: utf8);
+    return assFile;
+  }
+}
+
+// ============================================================================
+// المرحلة 3: الدمج باستخدام FFmpeg (ffmpeg_kit_flutter)
+// ============================================================================
+
+class VideoMergeResult {
+  final bool isSuccess;
+  final String outputPath;
+  final String? errorMessage;
+  final int? returnCode;
+
+  VideoMergeResult({
+    required this.isSuccess,
+    required this.outputPath,
+    this.errorMessage,
+    this.returnCode,
+  });
+}
+
+class KaraokeVideoMerger {
+  /// دمج (الخلفية المرئية + المسار الصوتي + ملف الترجمة .ass)
+  /// مع معالجة هروب المسارات (Path Escaping) بدقة لمنع انهيار FFmpeg
+  static Future<VideoMergeResult> mergeKaraokeVideo({
+    required String visualBackgroundPath, // مسار صورة أو فيديو خلفية
+    required String audioPath,            // مسار الصوت الأصلي
+    required String assSubtitlePath,       // مسار ملف .ass الذي ولدناه في المرحلة 2
+    required String outputPath,           // مسار الفيديو النهائي المنشأ
+    bool isBackgroundStaticImage = false, // هل الخلفية صورة ثابتة تحتاج تكرار (-loop 1)؟
+    String? fontsDirectoryPath,           // مسار مجلد الخطوط المخصصة مثل assets/fonts
+    void Function(double progress)? onProgress,
+    void Function(String logMessage)? onLog,
+  }) async {
+    // 1. التحقق من وجود جميع ملفات الإدخال
+    if (!await File(visualBackgroundPath).exists()) {
+      return VideoMergeResult(
+        isSuccess: false,
+        outputPath: outputPath,
+        errorMessage: 'ملف الخلفية المرئية غير موجود: \$visualBackgroundPath',
+      );
+    }
+    if (!await File(audioPath).exists()) {
+      return VideoMergeResult(
+        isSuccess: false,
+        outputPath: outputPath,
+        errorMessage: 'ملف الصوت غير موجود: \$audioPath',
+      );
+    }
+    if (!await File(assSubtitlePath).exists()) {
+      return VideoMergeResult(
+        isSuccess: false,
+        outputPath: outputPath,
+        errorMessage: 'ملف الترجمة ASS غير موجود: \$assSubtitlePath',
+      );
+    }
+
+    // حذف ملف الإخراج السابق إن وُجد لتفادي تعارض الأذونات
+    final targetOutputFile = File(outputPath);
+    if (await targetOutputFile.exists()) {
+      try {
+        await targetOutputFile.delete();
+      } catch (_) {}
+    }
+
+    // 2. تجهيز مسار فلتر ASS مع الهروب الصحيح:
+    // في فلاتر FFmpeg على أندرويد وiOS والويندوز، رمز النقطتين (:) والشرطة المائلة العكسية (\\)
+    // تُفسر كفواصل داخلية للفلتر ويجب الهروب منها بـ \\: لتفادي كراش FFmpeg الشهير
+    final escapedAssPath = assSubtitlePath
+        .replaceAll(r'\\', '/')
+        .replaceAll(':', r'\\:');
+
+    // إعداد فلتر الفيديو Video Filter
+    String videoFilter = "ass='\$escapedAssPath'";
+    if (fontsDirectoryPath != null && fontsDirectoryPath.isNotEmpty) {
+      final escapedFontsDir = fontsDirectoryPath
+          .replaceAll(r'\\', '/')
+          .replaceAll(':', r'\\:');
+      videoFilter = "ass='\$escapedAssPath':fontsdir='\$escapedFontsDir'";
+    }
+
+    // 3. بناء قائمة وسائط أمر FFmpeg Kit
+    final List<String> commandArgs = [
+      '-y', // الكتابة فوق الملفات الموجودة تلقائياً
+    ];
+
+    if (isBackgroundStaticImage) {
+      commandArgs.addAll([
+        '-loop', '1',
+        '-framerate', '30',
+        '-i', visualBackgroundPath,
+      ]);
+    } else {
+      commandArgs.addAll([
+        '-i', visualBackgroundPath,
+      ]);
+    }
+
+    commandArgs.addAll([
+      '-i', audioPath,
+      '-vf', videoFilter,
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-crf', '21',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-shortest', // إيقاف الفيديو بالضبط عند انتهاء المقطع الصوتي
+      '-pix_fmt', 'yuv420p',
+      outputPath,
+    ]);
+
+    final String fullCommandLine = commandArgs.map((arg) {
+      if (arg.contains(' ') || arg.contains('=') || arg.contains(':')) {
+        return '"\$arg"';
+      }
+      return arg;
+    }).join(' ');
+
+    onLog?.call('تشغيل أمر FFmpeg Kit: \$fullCommandLine');
+
+    // 4. تنفيذ الأمر ومتابعة التقدم
+    final Completer<VideoMergeResult> completer = Completer<VideoMergeResult>();
+
+    await FFmpegKit.executeAsync(
+      fullCommandLine,
+      (Session session) async {
+        final returnCode = await session.getReturnCode();
+        if (ReturnCode.isSuccess(returnCode)) {
+          completer.complete(
+            VideoMergeResult(
+              isSuccess: true,
+              outputPath: outputPath,
+              returnCode: returnCode?.getValue(),
+            ),
+          );
+        } else if (ReturnCode.isCancel(returnCode)) {
+          completer.complete(
+            VideoMergeResult(
+              isSuccess: false,
+              outputPath: outputPath,
+              errorMessage: 'تم إلغاء عملية الدمج من قِبل المستخدم.',
+              returnCode: returnCode?.getValue(),
+            ),
+          );
+        } else {
+          final failStackTrace = await session.getFailStackTrace();
+          final logs = await session.getAllLogsAsString();
+          completer.complete(
+            VideoMergeResult(
+              isSuccess: false,
+              outputPath: outputPath,
+              errorMessage: 'فشل أمر FFmpeg Kit (كود \${returnCode?.getValue()}): \${failStackTrace ?? logs}',
+              returnCode: returnCode?.getValue(),
+            ),
+          );
+        }
+      },
+      (log) {
+        onLog?.call(log.getMessage());
+      },
+      (statistics) {
+        if (onProgress != null && statistics.getTime() > 0) {
+          // تقدم بالثواني
+          onProgress(statistics.getTime() / 1000.0);
+        }
+      },
+    );
+
+    return completer.future;
+  }
+}
+
+// ============================================================================
+// الدالة المتكاملة الكبرى (The Complete Master Pipeline Function)
+// ============================================================================
+
+class AudioToKaraokeVideoPipeline {
+  final SpeechToTextService sttService;
+
+  AudioToKaraokeVideoPipeline({
+    required String openAiApiKey,
+  }) : sttService = SpeechToTextService(apiKey: openAiApiKey);
+
+  /// الدالة الرئيسية التي تربط المراحل الثلاث من البداية حتى استخراج الفيديو النهائي
+  /// مع رصد التقدم ومعالجة كافة أنواع الأخطاء (انقطاع الإنترنت، خطأ المفتاح، فشل الدمج)
+  Future<String> executePipeline({
+    required File audioFile,
+    required String backgroundMediaFilePath,
+    required String outputVideoFilePath,
+    bool isBackgroundStaticImage = false,
+    String arabicFontName = 'Aref Ruqaa',
+    int highlightColorHex = 0xE5B842, // ذهبي
+    void Function(PipelineStage stage, String statusMessage, double? progress)? onProgressUpdate,
+  }) async {
+    File? generatedAssFile;
+
+    try {
+      // -------------------------------------------------------------
+      // المرحلة 1: تحويل الصوت إلى نص مع توقيت الكلمات (Speech-to-Text)
+      // -------------------------------------------------------------
+      onProgressUpdate?.call(
+        PipelineStage.transcribingAudio,
+        'المرحلة 1/3: جاري رفع الصوت وتوليد توقيتات الكلمات عبر الذكاء الاصطناعي...',
+        0.1,
+      );
+
+      final transcription = await sttService.transcribeAudioWithWordTimestamps(
+        audioFile: audioFile,
+        language: 'ar',
+      );
+
+      // -------------------------------------------------------------
+      // المرحلة 2: بناء وتوليد ملف الترجمة والكاريوكي .ass
+      // -------------------------------------------------------------
+      onProgressUpdate?.call(
+        PipelineStage.generatingAssFile,
+        'المرحلة 2/3: تم استخراج \${transcription.words.length} كلمة بتوقيت دقيق. جاري توليد ملف ASS كاريوكي...',
+        0.4,
+      );
+
+      generatedAssFile = await AssKaraokeGenerator.generateAssFile(
+        words: transcription.words,
+        fontName: arabicFontName,
+        highlightColor: highlightColorHex,
+      );
+
+      // -------------------------------------------------------------
+      // المرحلة 3: دمج الفيديو والصوت وترجمة الكاريوكي عبر FFmpeg Kit
+      // -------------------------------------------------------------
+      onProgressUpdate?.call(
+        PipelineStage.mergingWithFFmpeg,
+        'المرحلة 3/3: جاري دمج الفيديو وتطبيق تأثير المخطوط المتزامن عبر محرك FFmpeg...',
+        0.7,
+      );
+
+      final mergeResult = await KaraokeVideoMerger.mergeKaraokeVideo(
+        visualBackgroundPath: backgroundMediaFilePath,
+        audioPath: audioFile.path,
+        assSubtitlePath: generatedAssFile.path,
+        outputPath: outputVideoFilePath,
+        isBackgroundStaticImage: isBackgroundStaticImage,
+        onProgress: (secondsProcessed) {
+          onProgressUpdate?.call(
+            PipelineStage.mergingWithFFmpeg,
+            'جاري معالجة إطارات الفيديو (\$secondsProcessed ثانية)...',
+            0.8,
+          );
+        },
+      );
+
+      if (!mergeResult.isSuccess) {
+        throw Exception(mergeResult.errorMessage ?? 'فشل غير معروف في دمج الفيديو عبر FFmpeg.');
+      }
+
+      onProgressUpdate?.call(
+        PipelineStage.completed,
+        'اكتملت العملية بنجاح! تم إنشاء الفيديو النهائي بالخط المتزامن.',
+        1.0,
+      );
+
+      return outputVideoFilePath;
+    } on SocketException catch (e) {
+      onProgressUpdate?.call(PipelineStage.failed, e.message, 0.0);
+      rethrow;
+    } on TimeoutException catch (e) {
+      onProgressUpdate?.call(PipelineStage.failed, e.message ?? 'انتهت مهلة الطلب', 0.0);
+      rethrow;
+    } catch (e) {
+      onProgressUpdate?.call(PipelineStage.failed, 'حدث خطأ: \$e', 0.0);
+      rethrow;
+    } finally {
+      // تنظيف الملف المؤقت .ass بعد الانتهاء للحفاظ على مساحة تخزين الجهاز
+      if (generatedAssFile != null && await generatedAssFile.exists()) {
+        try {
+          await generatedAssFile.delete();
+        } catch (_) {}
+      }
+    }
   }
 }
 `.trim(),
