@@ -43,30 +43,41 @@ class AudioEngine {
     preset: string = 'spiritual_drone',
     volume: number = 0.8,
     customUrl?: string,
-    startTime: number = 0
+    startTime: number = 0,
+    ambientPreset: string = 'spiritual_drone',
+    ambientVolume: number = 0.35
   ) {
     this.initContext();
     this.currentVolume = volume;
 
-    // If user provided a custom audio URL (uploaded MP3 / audio file)
+    // If user provided a custom audio URL (uploaded MP3 / live recorded audio file)
     if (customUrl) {
-      this.playCustomAudio(customUrl, volume, startTime, preset);
+      this.playCustomAudio(customUrl, volume, startTime, ambientPreset, ambientVolume);
       return;
     }
 
     // Stop custom audio if switching to preset
     this.stopCustomAudio();
-    this.playSynthesizedPreset(preset, volume);
+    if (preset !== 'none' && preset !== 'silence') {
+      this.playSynthesizedPreset(preset, volume);
+    } else {
+      this.stopOscillators();
+    }
   }
 
   private playCustomAudio(
     url: string,
     volume: number,
     startTime: number = 0,
-    fallbackPreset: string = 'spiritual_drone'
+    ambientPreset: string = 'spiritual_drone',
+    ambientVolume: number = 0.35
   ) {
-    // Stop any running synth oscillators
-    this.stopOscillators();
+    // If an ambient sound effect is selected alongside custom audio, start its subtle harmonic accompaniment
+    if (ambientPreset && ambientPreset !== 'none' && ambientPreset !== 'silence' && ambientVolume > 0) {
+      this.playSynthesizedPreset(ambientPreset, ambientVolume);
+    } else {
+      this.stopOscillators();
+    }
 
     if (!this.customAudioElement) {
       this.customAudioElement = new Audio();
@@ -108,7 +119,7 @@ class AudioEngine {
     audio.onerror = (e) => {
       console.warn('Custom audio element error on url:', url, e, '- falling back to synth');
       if (this.isPlaying) {
-        this.playSynthesizedPreset(fallbackPreset, volume);
+        this.playSynthesizedPreset(ambientPreset || 'spiritual_drone', volume);
       }
     };
 
@@ -203,11 +214,17 @@ class AudioEngine {
     // Peaceful synthesized spiritual soundscape (pure Web Audio chords / drone)
     // Scale: Peaceful D minor / Bayati spiritual aura (D3, A3, F3, E3, D4)
     const baseFreqs =
-      preset === 'adhan_harmony'
-        ? [146.83, 220.0, 261.63, 293.66] // D3, A3, C4, D4
+      preset === 'gentle_reverb'
+        ? [110.0, 164.81, 220.0, 329.63] // Deep mosque hall acoustic resonance
+        : preset === 'water_courtyard'
+        ? [130.81, 196.0, 261.63, 392.0] // Courtyard fountain tranquil harmonics
+        : preset === 'voice_clarity'
+        ? [174.61, 261.63, 349.23, 440.0] // Warm human speech enhancer frequencies
+        : preset === 'adhan_harmony'
+        ? [146.83, 220.0, 261.63, 293.66]
         : preset === 'choral_peace'
-        ? [130.81, 196.0, 261.63, 329.63] // C3, G3, C4, E4
-        : [146.83, 220.0, 174.61, 293.66]; // D3, A3, F3, D4 (Bayati serenity)
+        ? [130.81, 196.0, 261.63, 329.63]
+        : [146.83, 220.0, 174.61, 293.66]; // Bayati serenity drone
 
     baseFreqs.forEach((freq, idx) => {
       if (!this.ctx || !this.replacedGain) return;

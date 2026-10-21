@@ -78,7 +78,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Sparkles className="w-4 h-4 text-[#FFDF9E]" />
-            <span>صناعة الدروس التلقائية</span>
+            <span>قائمة إيصال السالك والدروس</span>
           </button>
 
           <button

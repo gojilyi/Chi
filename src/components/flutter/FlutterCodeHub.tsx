@@ -553,7 +553,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     path: 'lib/services/ffmpeg_service.dart',
     filename: 'ffmpeg_service.dart',
     description: 'العصب الأساسي: أوامر FFmpeg Kit لمعالجة المقاسات، كتم الصوت، إضافة النصوص والمؤثرات',
-    code: `import 'package:ffmpeg_kit_flutter_full_gpl/ffmpeg_kit.dart';
+    code: `import 'dart:io';
+import 'package:ffmpeg_kit_flutter_full_gpl/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_full_gpl/return_code.dart';
 import 'package:ffmpeg_kit_flutter_full_gpl/session.dart';
 import '../features/drafts/models/project_draft.dart';
@@ -604,16 +605,41 @@ class FFmpegService {
       audioMapping = '-an'; // كتم الصوت الأصلي بالكامل
     }
 
+    // التحقق التام من امتداد مسار الإخراج وإجباره على .mp4
+    String targetOutputPath = draft.outputPath.trim();
+    if (!targetOutputPath.toLowerCase().endsWith('.mp4')) {
+      targetOutputPath = '$targetOutputPath.mp4';
+    }
+
+    // هل مسار الخلفية صورة ثابتة؟ إذا كانت صورة، يجب وضع -loop 1 قبلها مباشرة
+    final bool isStillImage = draft.videoPath.toLowerCase().endsWith('.jpg') ||
+        draft.videoPath.toLowerCase().endsWith('.jpeg') ||
+        draft.videoPath.toLowerCase().endsWith('.png') ||
+        draft.videoPath.toLowerCase().endsWith('.webp');
+
+    final inputLoopFlag = isStillImage ? '-loop 1' : '';
+    final stillImageTuneFlag = isStillImage ? '-tune stillimage' : '';
+
     // الأمر النهائي المجمع لـ FFmpeg
     final String fullCommand = [
       '-y',
+      inputLoopFlag,
       '-i "\${draft.videoPath}"',
       ...audioInputs,
       '-filter_complex "\${filterChains.join('; ')}"',
       '-map "[\$currentVideoStream]"',
       audioMapping,
-      '-c:v libx264 -preset fast -crf 22 -c:a aac -shortest "\${draft.outputPath}"',
-    ].join(' ');
+      '-c:v libx264',
+      stillImageTuneFlag,
+      '-preset fast',
+      '-crf 22',
+      '-c:a aac',
+      '-b:a 192k',
+      '-pix_fmt yuv420p',
+      '-shortest',
+      '-movflags +faststart',
+      '"\$targetOutputPath"',
+    ].where((part) => part.isNotEmpty).join(' ');
 
     print('Executing FFmpeg Kit: \$fullCommand');
 
@@ -624,7 +650,81 @@ class FFmpegService {
         if (ReturnCode.isSuccess(returnCode)) {
           print('✅ تم التصدير بنجاح عبر ffmpeg_kit_flutter');
         } else {
-          print('❌ فشل التصدير: \${returnCode?.getValue()}');
+          final failLog = await session.getFailStackTrace();
+          print('❌ فشل التصدير: \${returnCode?.getValue()} | \$failLog');
+        }
+      },
+    );
+
+    final returnCode = await session.getReturnCode();
+    return ReturnCode.isSuccess(returnCode);
+  }
+
+  /// الدالة القياسية المباشرة لدمج صورة ثابتة مع مقطع صوتي وإنتاج فيديو MP4 متكامل
+  /// تحل مشكلة حفظ الفيديو كصورة فقط من خلال ترتيب الوسائط الإلزامي لـ FFmpeg:
+  /// -loop 1 قبل مسار الصورة، -pix_fmt yuv420p، -tune stillimage، و -shortest
+  static Future<bool> exportImageAndAudioToMp4Video({
+    required String imagePath,
+    required String audioPath,
+    required String outputPath,
+    Function(double progress)? onProgress,
+  }) async {
+    // 1. التحقق من وجود الملفات
+    final imgFile = File(imagePath);
+    final audioFile = File(audioPath);
+
+    if (!await imgFile.exists()) {
+      print('❌ خطأ: ملف الصورة غير موجود في: \$imagePath');
+      return false;
+    }
+    if (!await audioFile.exists()) {
+      print('❌ خطأ: ملف الصوت غير موجود في: \$audioPath');
+      return false;
+    }
+
+    // 2. ضمان أن مسار الإخراج ينتهي بصيغة .mp4 بشكل صريح ومطلق
+    String finalOutputPath = outputPath.trim();
+    if (!finalOutputPath.toLowerCase().endsWith('.mp4')) {
+      finalOutputPath = '\$finalOutputPath.mp4';
+    }
+
+    // 3. بناء أمر FFmpeg الدقيق وفق أفضل الممارسات:
+    // ملاحظة: -loop 1 يجب أن يسبق -i imagePath ليفهم FFmpeg أنه دفق فيديو مستمر
+    final String ffmpegCommand = [
+      '-y',
+      '-loop 1',
+      '-i "\$imagePath"',
+      '-i "\$audioPath"',
+      '-c:v libx264',
+      '-tune stillimage',
+      '-c:a aac',
+      '-b:a 192k',
+      '-pix_fmt yuv420p',
+      '-shortest',
+      '-movflags +faststart',
+      '"\$finalOutputPath"',
+    ].join(' ');
+
+    print('🚀 بدء تشغيل أمر FFmpeg لدمج الصورة والصوت إلى فيديو MP4:');
+    print(ffmpegCommand);
+
+    final session = await FFmpegKit.executeAsync(
+      ffmpegCommand,
+      (Session session) async {
+        final returnCode = await session.getReturnCode();
+        if (ReturnCode.isSuccess(returnCode)) {
+          print('✅ تم إنتاج وتصدير فيديو MP4 بنجاح في: \$finalOutputPath');
+        } else {
+          final failTrace = await session.getFailStackTrace();
+          print('❌ فشل أمر FFmpeg (كود: \${returnCode?.getValue()}): \$failTrace');
+        }
+      },
+      (log) {
+        print('[FFmpeg]: \${log.getMessage()}');
+      },
+      (statistics) {
+        if (onProgress != null && statistics.getTime() > 0) {
+          onProgress(statistics.getTime() / 1000.0);
         }
       },
     );

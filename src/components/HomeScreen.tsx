@@ -16,10 +16,18 @@ import {
   Upload, 
   SlidersHorizontal,
   VolumeX,
-  FileVideo
+  FileVideo,
+  BookOpen,
+  Sparkles
 } from 'lucide-react';
 import { AspectRatioType, ProjectDraft } from '../types';
 import { ASPECT_RATIO_OPTIONS, ASSET_MINARET_SUNSET, ASSET_QURAN_LIGHT, ASSET_ARABIC_ORNAMENT } from '../constants/defaults';
+import {
+  ASSET_IYSAL_LIBRARY,
+  ASSET_IYSAL_GESTURE,
+  ASSET_IYSAL_WHITE_MOSQUE,
+  ASSET_IYSAL_WOODEN_MINBAR
+} from '../constants/autoLectureDefaults';
 
 interface HomeScreenProps {
   drafts: ProjectDraft[];
@@ -87,29 +95,52 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </p>
         </div>
 
-        {/* Feature Spotlight: Auto Lesson Maker (صناعة الدروس التلقائية) */}
+        {/* Feature Spotlight: Iysal Al-Salik Playlist & Auto Lesson Maker */}
         {onOpenAutoLessons && (
-          <div className="bg-gradient-to-r from-[#004A33]/40 via-[#1A2E26]/50 to-[#1A1C1E] border border-[#006C4C]/50 rounded-2xl p-6 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-5 transition-all hover:border-[#89F8C7]/50">
-            <div className="space-y-2 max-w-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-[#006C4C]/30 border border-[#89F8C7]/30 text-xs text-[#89F8C7] font-semibold">
-                <span className="w-2 h-2 rounded-full bg-[#89F8C7] animate-pulse"></span>
-                <span>ميزة جديدة: صناعة الدروس التلقائية المتزامنة مع الصوت</span>
+          <div className="bg-gradient-to-r from-[#004A33]/50 via-[#162720]/60 to-[#121316] border border-[#006C4C] rounded-2xl p-6 shadow-lg flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 transition-all hover:border-[#89F8C7]/60 relative overflow-hidden">
+            <div className="space-y-3 max-w-2xl">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-[#006C4C]/40 border border-[#89F8C7]/40 text-xs font-bold text-[#89F8C7]">
+                  <BookOpen className="w-3.5 h-3.5 text-[#FFDF9E]" />
+                  <span>سلسلة حصرية: شرح كتاب إيصال السالك</span>
+                </span>
+                <span className="text-xs text-[#8E9192]">
+                  أصول مذهب الإمام مالك · صوت الشيخ العيد · مؤثرات الفيديو
+                </span>
               </div>
               <h2 className="text-xl sm:text-2xl font-bold text-[#E3E2E6] font-cairo">
-                أنشئ درساً دينياً متكاملاً بضغطة زر
+                قائمة «شرح كتاب إيصال السالك» وصناعة الفيديو
               </h2>
               <p className="text-xs sm:text-sm text-[#C4C7C8] leading-relaxed">
-                مكتبة خلفيات جاهزة (Grid View من assets/backgrounds) + تكرار الخلفية تلقائياً لتطابق مدة الصوت + حرق كاريوكي الكلمات بخط الرقعة مع أمر FFmpeg Kit.
+                أنشئ فيديو متكاملاً لمجالس الشرح: اختر من المشاهد الستة المرفوعة للشيخ (المكتبة التراثية، المحراب المضاء، المنبر الخشبي)، وأضف صوت الشيخ (تسجيل مباشر أو ملف صوتي)، وطبّق الهالات النورانية والكاريوكي بخط الرقعة.
               </p>
+
+              {/* Mini Thumbnail Gallery of the Book Scenes */}
+              <div className="flex items-center gap-2 pt-1">
+                {[
+                  { img: ASSET_IYSAL_LIBRARY, label: 'المكتبة التراثية' },
+                  { img: ASSET_IYSAL_GESTURE, label: 'مجلس الشرح' },
+                  { img: ASSET_IYSAL_WHITE_MOSQUE, label: 'المحراب المنور' },
+                  { img: ASSET_IYSAL_WOODEN_MINBAR, label: 'المنبر الخشبي' },
+                ].map((item, idx) => (
+                  <div key={idx} className="relative rounded-lg overflow-hidden w-16 h-10 border border-[#2B2C30] shrink-0 group">
+                    <img src={item.img} alt={item.label} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                  </div>
+                ))}
+                <span className="text-[11px] text-[#89F8C7] font-mono mr-1">+ 6 مشاهد ومجالس علم</span>
+              </div>
             </div>
 
-            <button
-              onClick={onOpenAutoLessons}
-              className="px-6 py-3 rounded-xl bg-[#89F8C7] hover:bg-[#72dbb0] text-[#002114] text-xs font-bold transition-all shadow-md flex items-center gap-2 whitespace-nowrap active:scale-[0.98] shrink-0"
-            >
-              <span>فتح استوديو صناعة الدروس التلقائية</span>
-              <ArrowLeft className="w-4 h-4" />
-            </button>
+            <div className="flex flex-col sm:flex-row lg:flex-col gap-2.5 shrink-0 w-full lg:w-auto">
+              <button
+                onClick={onOpenAutoLessons}
+                className="px-6 py-3 rounded-xl bg-[#89F8C7] hover:bg-[#72dbb0] text-[#002114] text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 whitespace-nowrap active:scale-[0.98]"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>فتح قائمة شرح إيصال السالك</span>
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
 
